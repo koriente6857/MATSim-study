@@ -1,0 +1,26 @@
+<!DOCTYPE chargers SYSTEM "http://matsim.org/files/dtd/chargers_v1.dtd">
+
+<chargers>
+	<charger id="ITER2_Charger_max10_5" link="636277" type="truck" plug_power="100.0" plug_count="2"/>
+	<charger id="ITER2_Charger_max10_4" link="12658" type="truck" plug_power="100.0" plug_count="2"/>
+	<charger id="ITER1_Charger_max10_4" link="80948" type="truck" plug_power="100.0" plug_count="2"/>
+	<charger id="ITER1_Charger_max10_14" link="1237486" type="truck" plug_power="100.0" plug_count="2"/>
+	<charger id="ITER1_Charger_max10_3" link="899663" type="truck" plug_power="100.0" plug_count="2"/>
+	<charger id="ITER1_Charger_max10_15" link="1487093" type="truck" plug_power="100.0" plug_count="2"/>
+	<charger id="ITER1_Charger_max10_6" link="471701" type="truck" plug_power="100.0" plug_count="2"/>
+	<charger id="ITER1_Charger_max10_12" link="143501" type="truck" plug_power="100.0" plug_count="2"/>
+	<charger id="ITER1_Charger_max10_5" link="1199032" type="truck" plug_power="100.0" plug_count="2"/>
+	<charger id="ITER1_Charger_max10_13" link="1215779" type="truck" plug_power="100.0" plug_count="2"/>
+	<charger id="ITER1_Charger_max10_8" link="434530" type="truck" plug_power="100.0" plug_count="2"/>
+	<charger id="ITER1_Charger_max10_10" link="422877" type="truck" plug_power="100.0" plug_count="2"/>
+	<charger id="ITER1_Charger_max10_7" link="183408" type="truck" plug_power="100.0" plug_count="2"/>
+	<charger id="ITER1_Charger_max10_11" link="52298" type="truck" plug_power="100.0" plug_count="2"/>
+	<charger id="ITER1_Charger_max10_9" link="157460" type="truck" plug_power="100.0" plug_count="2"/>
+	<charger id="ITER1_Charger_max10_20" link="817697" type="truck" plug_power="100.0" plug_count="2"/>
+	<charger id="ITER1_Charger_max10_18" link="948660" type="truck" plug_power="100.0" plug_count="2"/>
+	<charger id="ITER1_Charger_max10_19" link="573479" type="truck" plug_power="100.0" plug_count="2"/>
+	<charger id="ITER1_Charger_max10_16" link="295729" type="truck" plug_power="100.0" plug_count="2"/>
+	<charger id="ITER1_Charger_max10_17" link="373910" type="truck" plug_power="100.0" plug_count="2"/>
+	<charger id="ITER1_Charger_max10_2" link="107910" type="truck" plug_power="100.0" plug_count="2"/>
+	<charger id="ITER1_Charger_max10_1" link="118208" type="truck" plug_power="100.0" plug_count="2"/>
+</chargers>
