@@ -27,7 +27,6 @@ import org.matsim.contrib.ev.fleet.ElectricVehicle;
 import org.matsim.contrib.ev.fleet.ElectricVehicleSpecification;
 import org.matsim.contrib.ev.infrastructure.ChargerSpecification;
 import org.matsim.contrib.ev.infrastructure.ChargingInfrastructureSpecification;
-import org.matsim.contrib.ev.infrastructure.LTHConsumptionModelReader;
 import org.matsim.core.gbl.Gbl;
 import org.matsim.core.gbl.MatsimRandom;
 import org.matsim.core.network.NetworkUtils;
@@ -40,10 +39,8 @@ import org.matsim.vehicles.Vehicle;
 
 import java.util.*;
 import java.util.stream.Collectors;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
 /**
  * Calculates the route for EV agents, potentially inserting charging stops based on battery constraints
  * and truck-specific driving rules. A key improvement over previous implementations is the dynamic
@@ -54,13 +51,16 @@ import org.apache.logging.log4j.Logger;
 
 final class TruckEvNetworkRoutingModule implements RoutingModule {
 
+
 	private static final Logger log = LogManager.getLogger(TruckEvNetworkRoutingModule.class); // <-- 이 줄을 추가하세요!
 
 	// Constants for driving logic and charger search
 	private static final double TRUCK_MAX_DRIVING_TIME = 4.5 * 3600; // Max driving time in seconds before needing a break
-	private static final double DEFAULT_RADIUS = 200 * 1000;    // Max radius (in meters) to search for chargers
-	private static final double MIN_SOC_THRESHOLD = 0.2;            // Lower bound SOC threshold to trigger charging
+	private static final double DEFAULT_RADIUS = 1.3 * 60 * 1000;    // Max radius (in meters) to search for chargers
+	private static final double MIN_SOC_THRESHOLD = 0.15;            // Lower bound SOC threshold to trigger charging
 	private static final double MAX_SOC_THRESHOLD = 0.4;             // Upper bound SOC threshold to trigger charging
+	double entiredrivingtime = 0.0;
+	double accumulateddrivingtime = 0.0;
 
 	private final String mode;
 	private final Network network;
@@ -106,7 +106,6 @@ final class TruckEvNetworkRoutingModule implements RoutingModule {
 
 		// If person has no EV, return default route
 		if (!this.mode.equals(basicLeg.getMode()) || !electricFleet.getVehicleSpecifications().containsKey(evId)) {
-			System.out.println("no EV");
 			return basicRoute;
 		}
 
@@ -118,10 +117,10 @@ final class TruckEvNetworkRoutingModule implements RoutingModule {
 		Map<Link, Double> consumptionMap = estimateConsumption(evSpec, basicLeg);
 
 		// If trip is easily doable, skip EV-specific logic
-		if ((0.6 * initialSOC) > consumptionMap.values().stream().mapToDouble(Double::doubleValue).sum()) {
+		if ((0.1 * initialSOC) > consumptionMap.values().stream().mapToDouble(Double::doubleValue).sum()) {
 			return basicRoute;
 		}
-
+		//log.info("Agent {} Initial SOC {}", request.getPerson().getId(), initialSOC);
 		// Build charging-aware route
 		return createChargingPlan(request, basicRoute, evSpec, initialSOC, capacity);
 	}
@@ -152,6 +151,10 @@ final class TruckEvNetworkRoutingModule implements RoutingModule {
 
 	/**
 	 * Dynamically selects charging stops along the route by recalculating energy consumption
+	 * from each potential charging stop onward to ensure accurate SOC and driving time estimates.
+	 */
+	/**
+	 * Dynamically selects charging stops along the route by recalculating energy consumption
 	 * from each charging stop onward, ensuring no duplicate chargers are selected.
 	 */
 	private List<ChargerSpecification> selectChargingStops(
@@ -169,10 +172,9 @@ final class TruckEvNetworkRoutingModule implements RoutingModule {
 
 		double currentSOC = initialSOC;
 		double drivingTimeAccumulator = 0.0;
-		
 		Facility lastFacility = fromFacility;
 
-		int maxIterations = 20;  // safety limit to avoid infinite loops, SHOULD not be needed
+		int maxIterations = 100;  // safety limit to avoid infinite loops, SHOULD not be needed
 		// due to the check ensuring same stations cannot be selected
 		int iterationCount = 0;
 
@@ -197,27 +199,23 @@ final class TruckEvNetworkRoutingModule implements RoutingModule {
 			for (Link link : consumptionMap.keySet()) {
 				currentSOC -= consumptionMap.get(link);
 				drivingTimeAccumulator += timeMap.get(link);
+				entiredrivingtime += timeMap.get(link);
+				accumulateddrivingtime += timeMap.get(link);
 
-				log.info(String.format(
-					"[에이전트 ID: %s]%n" +
-						"  - SOC 조건: (%.2f / %.2f) = %.2f < 임계값 %.2f  => %b%n" +
-						"  - 주행 시간 조건: %.2f 초 > 최대 %.2f 초  => %b",
-					person.getId().toString(),
-					currentSOC, capacity, (currentSOC / capacity), socThreshold, (currentSOC / capacity) < socThreshold,
-					drivingTimeAccumulator, TRUCK_MAX_DRIVING_TIME, (isTruck(evSpec) && drivingTimeAccumulator > TRUCK_MAX_DRIVING_TIME)
-				));
+
+				log.info("Agent {} SOC {} kWh Driving Time {} accumulated driving time {}", person.getId(), (currentSOC/1.44E9)*400, entiredrivingtime/3600, accumulateddrivingtime/3600);
 
 				if ((currentSOC / capacity) < socThreshold ||
 					(isTruck(evSpec) && drivingTimeAccumulator > TRUCK_MAX_DRIVING_TIME)) {
 
-					ChargerSpecification charger = findNearestCompatibleCharger(link, evSpec);
+					ChargerSpecification charger = findNearestCompatibleCharger(link, evSpec, usedChargingLinks);
 					if (charger == null) {
 						// No new charger found: break to avoid infinite loop
 						return selectedChargers;
 					}
 
 					Id<Link> chargerLinkId = charger.getLinkId();
-					//usedChargingLinks.add(chargerLinkId);
+					usedChargingLinks.add(chargerLinkId);
 					selectedChargers.add(charger);
 
 					currentSOC = capacity; // TODO: Replace with realistic charging amount
@@ -226,18 +224,14 @@ final class TruckEvNetworkRoutingModule implements RoutingModule {
 					lastFacility = new LinkWrapperFacility(network.getLinks().get(chargerLinkId));
 					departureTime += timeMap.get(link); // Update for next leg
 					chargeNeeded = true;
-
-
 					break; // Restart loop from new charging facility
 				}
 			}
 
 			if (!chargeNeeded) {
 				// Destination reachable without further stops
-
 				break;
 			}
-
 		}
 
 		if (iterationCount >= maxIterations) {
@@ -278,18 +272,16 @@ final class TruckEvNetworkRoutingModule implements RoutingModule {
 		stagedRoute.addAll(delegate.calcRoute(DefaultRoutingRequest.of(
 			lastFacility, request.getToFacility(), departureTime, request.getPerson(), request.getAttributes())));
 
-		log.info(String.format("staged route : {}", stagedRoute.stream().map(Object::toString).collect(Collectors.joining(","))));
-
 		return stagedRoute;
 	}
 
 	/**
 	 * Finds the closest compatible charger within the radius, excluding already visited chargers.
 	 */
-	private ChargerSpecification findNearestCompatibleCharger(Link link, ElectricVehicleSpecification evSpec) {
+	private ChargerSpecification findNearestCompatibleCharger(Link link, ElectricVehicleSpecification evSpec, Set<Id<Link>> excludeLinks) {
 		return chargingInfrastructureSpecification.getChargerSpecifications().values().stream()
 			.filter(charger -> evSpec.getChargerTypes().contains(charger.getChargerType()))
-			//.filter(charger -> !excludeLinks.contains(charger.getLinkId()))  // Exclude previously used chargers
+			.filter(charger -> !excludeLinks.contains(charger.getLinkId()))  // Exclude previously used chargers
 			.filter(charger -> NetworkUtils.getEuclideanDistance(
 				network.getLinks().get(charger.getLinkId()).getCoord(),
 				link.getCoord()) < DEFAULT_RADIUS)
@@ -337,6 +329,7 @@ final class TruckEvNetworkRoutingModule implements RoutingModule {
 
 		double departureTime = leg.getDepartureTime().seconds();
 
+
 		// Create a temporary electric vehicle instance to use its energy models
 		ElectricVehicle pseudoVehicle;
 		try {
@@ -351,14 +344,17 @@ final class TruckEvNetworkRoutingModule implements RoutingModule {
 		}
 
 		DriveEnergyConsumption driveConsumption = pseudoVehicle.getDriveEnergyConsumption();
+		//log.info("driveConsumption {}", driveConsumption);
 		AuxEnergyConsumption auxConsumption = pseudoVehicle.getAuxEnergyConsumption();
+		//log.info("auxConsumption {}", auxConsumption);
 
 		double linkEnterTime = departureTime;
 
 		for (Link link : links) {
 			double travelTime = this.travelTime.getLinkTravelTime(link, linkEnterTime, null, null);
-			double driveEnergy = driveConsumption.calcEnergyConsumption(link, travelTime, linkEnterTime);
-			double auxEnergy = auxConsumption.calcEnergyConsumption(linkEnterTime, travelTime, link.getId());
+			double driveEnergy = 4*driveConsumption.calcEnergyConsumption(link, travelTime, linkEnterTime);
+			double auxEnergy = 4*auxConsumption.calcEnergyConsumption(linkEnterTime, travelTime, link.getId());
+			//log.info("linkEnterTime {}, travelTime {}, driveEnergy {}, auxEnergy {}", linkEnterTime, travelTime, driveEnergy*2.7E-4, auxEnergy);
 
 			consumptionMap.put(link, driveEnergy + auxEnergy);
 			linkEnterTime += travelTime;
@@ -377,7 +373,7 @@ final class TruckEvNetworkRoutingModule implements RoutingModule {
 		double linkEnterTime = leg.getDepartureTime().seconds();
 
 		for (Link link : links) {
-			double travelTime = this.travelTime.getLinkTravelTime(link, linkEnterTime, null, null);
+			double travelTime = 1.36377*(this.travelTime.getLinkTravelTime(link, linkEnterTime, null, null));
 			timeMap.put(link, travelTime);
 			linkEnterTime += travelTime;
 		}
@@ -386,8 +382,7 @@ final class TruckEvNetworkRoutingModule implements RoutingModule {
 	}
 	/**
 	 * Determines whether the given vehicle is a truck based on its type ID.
-	 */
-	private boolean isTruck(ElectricVehicleSpecification evSpec) {
+	 */	private boolean isTruck(ElectricVehicleSpecification evSpec) {
 		return evSpec.getMatsimVehicle().getType().getId().toString().toLowerCase().contains("truck");
 	}
 
