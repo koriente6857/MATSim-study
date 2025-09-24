@@ -55,12 +55,13 @@ final class TruckEvNetworkRoutingModule implements RoutingModule {
 	private static final Logger log = LogManager.getLogger(TruckEvNetworkRoutingModule.class); // <-- 이 줄을 추가하세요!
 
 	// Constants for driving logic and charger search
-	private static final double TRUCK_MAX_DRIVING_TIME = 4.5 * 3600; // Max driving time in seconds before needing a break
+	private static final double TRUCK_MAX_DRIVING_TIME = 11 * 3600; // Max driving time in seconds before needing a break
 	private static final double DEFAULT_RADIUS = 1.3 * 60 * 1000;    // Max radius (in meters) to search for chargers
 	private static final double MIN_SOC_THRESHOLD = 0.15;            // Lower bound SOC threshold to trigger charging
 	private static final double MAX_SOC_THRESHOLD = 0.4;             // Upper bound SOC threshold to trigger charging
 	double entiredrivingtime = 0.0;
 	double accumulateddrivingtime = 0.0;
+	int breakcounter = 0;
 
 	private final String mode;
 	private final Network network;
@@ -205,8 +206,7 @@ final class TruckEvNetworkRoutingModule implements RoutingModule {
 
 				log.info("Agent {} SOC {} kWh Driving Time {} accumulated driving time {}", person.getId(), (currentSOC/1.44E9)*400, entiredrivingtime/3600, accumulateddrivingtime/3600);
 
-				if ((currentSOC / capacity) < socThreshold ||
-					(isTruck(evSpec) && drivingTimeAccumulator > TRUCK_MAX_DRIVING_TIME)) {
+				if ((accumulateddrivingtime > 5.5*3600) && (breakcounter == 0)) {
 
 					ChargerSpecification charger = findNearestCompatibleCharger(link, evSpec, usedChargingLinks);
 					if (charger == null) {
@@ -215,14 +215,36 @@ final class TruckEvNetworkRoutingModule implements RoutingModule {
 					}
 
 					Id<Link> chargerLinkId = charger.getLinkId();
-					usedChargingLinks.add(chargerLinkId);
+					// usedChargingLinks.add(chargerLinkId);
 					selectedChargers.add(charger);
 
 					currentSOC = capacity; // TODO: Replace with realistic charging amount
 					drivingTimeAccumulator = 0.0;
+					accumulateddrivingtime = 0.0;
+					breakcounter++;
 
 					lastFacility = new LinkWrapperFacility(network.getLinks().get(chargerLinkId));
-					departureTime += timeMap.get(link); // Update for next leg
+					departureTime += 7200+timeMap.get(link); // Update for next leg
+					chargeNeeded = true;
+					break; // Restart loop from new charging facility
+				} else if ((accumulateddrivingtime > (5.5 * 3600)) && (breakcounter == 1)) {
+					ChargerSpecification charger = findNearestCompatibleCharger(link, evSpec, usedChargingLinks);
+					if (charger == null) {
+						// No new charger found: break to avoid infinite loop
+						return selectedChargers;
+					}
+
+					Id<Link> chargerLinkId = charger.getLinkId();
+					// usedChargingLinks.add(chargerLinkId);
+					selectedChargers.add(charger);
+
+					currentSOC = capacity; // TODO: Replace with realistic charging amount
+					drivingTimeAccumulator = 0.0;
+					accumulateddrivingtime = 0.0;
+					breakcounter = 0;
+
+					lastFacility = new LinkWrapperFacility(network.getLinks().get(chargerLinkId));
+					departureTime += (13*3600)+timeMap.get(link); // Update for next leg
 					chargeNeeded = true;
 					break; // Restart loop from new charging facility
 				}
