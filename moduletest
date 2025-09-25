@@ -206,7 +206,7 @@ final class TruckEvNetworkRoutingModule implements RoutingModule {
 
 				log.info("Agent {} SOC {} kWh Driving Time {} accumulated driving time {}", person.getId(), (currentSOC/1.44E9)*400, entiredrivingtime/3600, accumulateddrivingtime/3600);
 
-				if ((accumulateddrivingtime > 5.5*3600) && (breakcounter == 0)) {
+				if (accumulateddrivingtime > 5.5*3600){
 
 					ChargerSpecification charger = findNearestCompatibleCharger(link, evSpec, usedChargingLinks);
 					if (charger == null) {
@@ -221,30 +221,10 @@ final class TruckEvNetworkRoutingModule implements RoutingModule {
 					currentSOC = capacity; // TODO: Replace with realistic charging amount
 					drivingTimeAccumulator = 0.0;
 					accumulateddrivingtime = 0.0;
-					breakcounter++;
+					//breakcounter++;
 
 					lastFacility = new LinkWrapperFacility(network.getLinks().get(chargerLinkId));
-					departureTime += 7200+timeMap.get(link); // Update for next leg
-					chargeNeeded = true;
-					break; // Restart loop from new charging facility
-				} else if ((accumulateddrivingtime > (5.5 * 3600)) && (breakcounter == 1)) {
-					ChargerSpecification charger = findNearestCompatibleCharger(link, evSpec, usedChargingLinks);
-					if (charger == null) {
-						// No new charger found: break to avoid infinite loop
-						return selectedChargers;
-					}
-
-					Id<Link> chargerLinkId = charger.getLinkId();
-					// usedChargingLinks.add(chargerLinkId);
-					selectedChargers.add(charger);
-
-					currentSOC = capacity; // TODO: Replace with realistic charging amount
-					drivingTimeAccumulator = 0.0;
-					accumulateddrivingtime = 0.0;
-					breakcounter = 0;
-
-					lastFacility = new LinkWrapperFacility(network.getLinks().get(chargerLinkId));
-					departureTime += (13*3600)+timeMap.get(link); // Update for next leg
+					departureTime += timeMap.get(link); // Update for next leg
 					chargeNeeded = true;
 					break; // Restart loop from new charging facility
 				}
@@ -285,6 +265,7 @@ final class TruckEvNetworkRoutingModule implements RoutingModule {
 			// Add charging activity
 			Activity chargingActivity = generateChargingActivity(charger, evSpec);
 			stagedRoute.add(chargingActivity);
+			log.info("stagedRoute {}", stagedRoute);
 			departureTime += chargingActivity.getMaximumDuration().seconds();
 
 			lastFacility = chargerFacility;
@@ -318,25 +299,18 @@ final class TruckEvNetworkRoutingModule implements RoutingModule {
 	 */
 	private Activity generateChargingActivity(ChargerSpecification charger, ElectricVehicleSpecification evSpec) {
 		Link chargerLink = network.getLinks().get(charger.getLinkId());
-
-		// Create initial InteractionActivity
 		Activity interactionActivity = PopulationUtils.createStageActivityFromCoordLinkIdAndModePrefix(
 			chargerLink.getCoord(), chargerLink.getId(), this.stageActivityModePrefix);
-
-		// Convert InteractionActivity to regular Activity to allow setting duration
 		Activity chargeAct = PopulationUtils.createActivity(interactionActivity);
 
-		double maxPower = Math.min(charger.getPlugPower(), evSpec.getBatteryCapacity() / 3600);
-		double estimatedTime = evSpec.getBatteryCapacity() / maxPower;
-
-		// Apply truck-specific bounds
 		if (isTruck(evSpec)) {
-			estimatedTime = Math.min(Math.max(evConfigGroup.getMinimumChargeTime(), estimatedTime), 1800);
+			chargeAct.setMaximumDuration(12 * 3600); // 12시간 충전
 		} else {
+			double maxPower = Math.min(charger.getPlugPower(), evSpec.getBatteryCapacity() / 3600);
+			double estimatedTime = evSpec.getBatteryCapacity() / maxPower;
 			estimatedTime = Math.max(evConfigGroup.getMinimumChargeTime(), estimatedTime);
+			chargeAct.setMaximumDuration(estimatedTime);
 		}
-
-		chargeAct.setMaximumDuration(estimatedTime);
 		return chargeAct;
 	}
 
